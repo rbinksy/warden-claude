@@ -1,8 +1,10 @@
-# Wargaming Roster Builder - Technical Design Document
+# Wargaming Roster Builder - Technical Design Document (Condensed)
 
 ## Executive Summary
 
-The Wargaming Roster Builder is a modern web application designed to parse BattleScribe game data and provide an intuitive interface for searching units and building army rosters. Built with React, TypeScript, and Tailwind CSS, it offers a responsive and user-friendly alternative to traditional roster building tools.
+The Wargaming Roster Builder is a modern web application designed to parse BattleScribe game data and provide an intuitive interface for searching units and building army rosters. Built with React 18, TypeScript, and Tailwind CSS, it offers a responsive and user-friendly alternative to traditional roster building tools.
+
+**Note**: For comprehensive technical documentation, see [TECHNICAL_DESIGN_DOCUMENT.md](./TECHNICAL_DESIGN_DOCUMENT.md) which contains detailed architecture analysis, code examples, and implementation guidelines.
 
 ## Table of Contents
 
