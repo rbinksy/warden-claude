@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Create file",
+      "mkdir",
+      "Task",
+      "Bash",
+      "Bash(git log:*)",
+      "Bash(*)",
+      "Glob",
+      "Grep",
+      "LS",
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "deny": []
+  }
+}
