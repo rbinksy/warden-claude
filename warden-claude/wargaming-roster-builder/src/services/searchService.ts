@@ -1,235 +1,335 @@
+// Search service using native JavaScript methods (no Ramda/currying)
+
 import Fuse from 'fuse.js';
-import { Unit, SearchableUnit, SearchFilters, GameSystemData } from '@/types/battlescribe';
+import type { SearchableUnit, SearchFilters } from '../types/army';
 
-export class SearchService {
-  private unitSearchIndex: Fuse<SearchableUnit>;
-  private searchableUnits: SearchableUnit[];
+export interface SearchService {
+  search: (query: string, filters?: SearchFilters) => SearchableUnit[];
+  searchUnits: (query: string) => SearchableUnit[];
+  filterUnits: (units: SearchableUnit[], filters: SearchFilters) => SearchableUnit[];
+  findSimilarUnits: (targetUnit: SearchableUnit, limit?: number) => SearchableUnit[];
+  getAvailableFactions: () => string[];
+  getAvailableCategories: () => string[];
+  getAvailableKeywords: () => string[];
+}
 
-  constructor(gameSystemData: GameSystemData) {
-    this.searchableUnits = this.createSearchableUnits(gameSystemData.units);
-    this.unitSearchIndex = this.createSearchIndex();
-  }
+/**
+ * Create search service with functional approach (no classes)
+ */
+export const createSearchService = (units: SearchableUnit[]): SearchService => {
+  // Initialize Fuse.js for fuzzy search
+  const fuse = new Fuse(units, {
+    keys: [
+      { name: 'name', weight: 0.4 },
+      { name: 'faction', weight: 0.2 },
+      { name: 'categories', weight: 0.15 },
+      { name: 'abilities', weight: 0.15 },
+      { name: 'keywords', weight: 0.1 }
+    ],
+    threshold: 0.3,
+    includeScore: true,
+    includeMatches: true,
+    ignoreLocation: true,
+    useExtendedSearch: true
+  });
 
-  private createSearchableUnits(units: Unit[]): SearchableUnit[] {
-    return units.map(unit => {
-      const pointsCost = unit.costs.find(cost => cost.name === 'pts')?.value || 0;
-      const unitProfile = unit.profiles.find(p => p.typeName === 'Unit');
-      const characteristics = unitProfile?.characteristics.reduce((acc, char) => {
-        acc[char.name] = char.value;
-        return acc;
-      }, {} as Record<string, string>) || {};
+  /**
+   * Apply filters to units array
+   */
+  const filterUnits = (unitsToFilter: SearchableUnit[], filters: SearchFilters): SearchableUnit[] => {
+    return unitsToFilter.filter(unit => {
+      // Faction filter (exact match)
+      if (filters.faction && unit.faction !== filters.faction) {
+        return false;
+      }
 
-      return {
-        id: unit.id,
-        name: unit.name,
-        faction: unit.faction,
-        type: unit.type,
-        categories: unit.categoryLinks.map(link => link.name),
-        points: pointsCost,
-        abilities: unit.abilities.map(ability => ability.description),
-        rules: unit.rules.map(rule => rule.description),
-        keywords: this.extractKeywords(unit),
-        characteristics,
-      };
-    });
-  }
+      // Category filter (unit must have at least one matching category)
+      if (filters.category && !unit.categories.includes(filters.category)) {
+        return false;
+      }
 
-  private extractKeywords(unit: Unit): string[] {
-    const keywords: string[] = [];
-    
-    // Extract keywords from weapon profiles
-    unit.weapons.forEach(weapon => {
-      keywords.push(...weapon.keywords);
-    });
+      // Points range filter
+      if (filters.pointsMin !== undefined && unit.points < filters.pointsMin) {
+        return false;
+      }
+      if (filters.pointsMax !== undefined && unit.points > filters.pointsMax) {
+        return false;
+      }
 
-    // Extract keywords from category links
-    unit.categoryLinks.forEach(link => {
-      keywords.push(link.name);
-    });
-
-    // Remove duplicates
-    return [...new Set(keywords)];
-  }
-
-  private createSearchIndex(): Fuse<SearchableUnit> {
-    const options: Fuse.IFuseOptions<SearchableUnit> = {
-      keys: [
-        { name: 'name', weight: 0.4 },
-        { name: 'faction', weight: 0.2 },
-        { name: 'categories', weight: 0.15 },
-        { name: 'abilities', weight: 0.1 },
-        { name: 'rules', weight: 0.1 },
-        { name: 'keywords', weight: 0.05 },
-      ],
-      threshold: 0.3,
-      includeScore: true,
-      includeMatches: true,
-      ignoreLocation: true,
-      useExtendedSearch: true,
-    };
-
-    return new Fuse(this.searchableUnits, options);
-  }
-
-  searchUnits(query: string, filters?: SearchFilters): SearchableUnit[] {
-    let results = this.searchableUnits;
-
-    // Apply text search if query provided
-    if (query.trim()) {
-      const searchResults = this.unitSearchIndex.search(query);
-      results = searchResults.map(result => result.item);
-    }
-
-    // Apply filters
-    if (filters) {
-      results = this.applyFilters(results, filters);
-    }
-
-    return results;
-  }
-
-  private applyFilters(units: SearchableUnit[], filters: SearchFilters): SearchableUnit[] {
-    let filteredUnits = units;
-
-    if (filters.faction) {
-      filteredUnits = filteredUnits.filter(unit => 
-        unit.faction.toLowerCase().includes(filters.faction!.toLowerCase())
-      );
-    }
-
-    if (filters.category) {
-      filteredUnits = filteredUnits.filter(unit =>
-        unit.categories.some(cat => 
-          cat.toLowerCase().includes(filters.category!.toLowerCase())
-        )
-      );
-    }
-
-    if (filters.pointsMin !== undefined) {
-      filteredUnits = filteredUnits.filter(unit => unit.points >= filters.pointsMin!);
-    }
-
-    if (filters.pointsMax !== undefined) {
-      filteredUnits = filteredUnits.filter(unit => unit.points <= filters.pointsMax!);
-    }
-
-    if (filters.keywords && filters.keywords.length > 0) {
-      filteredUnits = filteredUnits.filter(unit =>
-        filters.keywords!.some(keyword =>
+      // Keywords filter (unit must have at least one matching keyword)
+      if (filters.keywords && filters.keywords.length > 0) {
+        const hasMatchingKeyword = filters.keywords.some(keyword =>
           unit.keywords.some(unitKeyword =>
             unitKeyword.toLowerCase().includes(keyword.toLowerCase())
           )
-        )
-      );
+        );
+        if (!hasMatchingKeyword) {
+          return false;
+        }
+      }
+
+      // Abilities filter (unit must have at least one matching ability)
+      if (filters.abilities && filters.abilities.length > 0) {
+        const hasMatchingAbility = filters.abilities.some(ability =>
+          unit.abilities.some(unitAbility =>
+            unitAbility.toLowerCase().includes(ability.toLowerCase())
+          )
+        );
+        if (!hasMatchingAbility) {
+          return false;
+        }
+      }
+
+      // Weapon type filter
+      if (filters.hasWeaponType) {
+        const hasWeaponType = unit.weapons.some(weapon =>
+          weapon.type === filters.hasWeaponType
+        );
+        if (!hasWeaponType) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
+  /**
+   * Perform fuzzy search on units
+   */
+  const searchUnits = (query: string): SearchableUnit[] => {
+    if (!query.trim()) {
+      return units;
     }
 
-    return filteredUnits;
-  }
+    const results = fuse.search(query);
+    return results.map(result => result.item);
+  };
 
-  getAvailableFactions(): string[] {
-    const factions = [...new Set(this.searchableUnits.map(unit => unit.faction))];
-    return factions.sort();
-  }
+  /**
+   * Main search function combining fuzzy search and filtering
+   */
+  const search = (query: string, filters: SearchFilters = {}): SearchableUnit[] => {
+    let results: SearchableUnit[];
 
-  getAvailableCategories(): string[] {
-    const categories = new Set<string>();
-    this.searchableUnits.forEach(unit => {
-      unit.categories.forEach(cat => categories.add(cat));
+    // Start with fuzzy search if query exists, otherwise use all units
+    if (query.trim()) {
+      results = searchUnits(query);
+    } else {
+      results = [...units];
+    }
+
+    // Apply filters
+    if (Object.keys(filters).length > 0) {
+      results = filterUnits(results, filters);
+    }
+
+    // Sort results by relevance (points ascending for similar relevance)
+    return results.sort((a, b) => {
+      // If both have the same relevance score, sort by points
+      return a.points - b.points;
     });
-    return [...categories].sort();
-  }
+  };
 
-  getAvailableKeywords(): string[] {
-    const keywords = new Set<string>();
-    this.searchableUnits.forEach(unit => {
-      unit.keywords.forEach(keyword => keywords.add(keyword));
-    });
-    return [...keywords].sort();
-  }
+  /**
+   * Calculate similarity between two units
+   */
+  const calculateSimilarity = (unit1: SearchableUnit, unit2: SearchableUnit): number => {
+    let score = 0;
 
-  getPointsRange(): { min: number; max: number } {
-    const points = this.searchableUnits.map(unit => unit.points).filter(p => p > 0);
-    return {
-      min: Math.min(...points),
-      max: Math.max(...points),
-    };
-  }
+    // Faction similarity (high weight)
+    if (unit1.faction === unit2.faction) {
+      score += 0.4;
+    }
 
-  getUnitById(id: string): SearchableUnit | undefined {
-    return this.searchableUnits.find(unit => unit.id === id);
-  }
-
-  getUnitsByFaction(faction: string): SearchableUnit[] {
-    return this.searchableUnits.filter(unit => 
-      unit.faction.toLowerCase() === faction.toLowerCase()
+    // Category overlap
+    const categoryIntersection = unit1.categories.filter(cat =>
+      unit2.categories.includes(cat)
     );
-  }
+    const categoryUnion = [...new Set([...unit1.categories, ...unit2.categories])];
+    const categoryScore = categoryUnion.length > 0 ? categoryIntersection.length / categoryUnion.length : 0;
+    score += categoryScore * 0.3;
 
-  getUnitsByCategory(category: string): SearchableUnit[] {
-    return this.searchableUnits.filter(unit =>
-      unit.categories.some(cat => 
-        cat.toLowerCase() === category.toLowerCase()
+    // Points similarity (inverse of relative difference)
+    const maxPoints = Math.max(unit1.points, unit2.points);
+    const pointsDiff = Math.abs(unit1.points - unit2.points);
+    const pointsScore = maxPoints > 0 ? Math.max(0, 1 - pointsDiff / maxPoints) : 0;
+    score += pointsScore * 0.2;
+
+    // Keyword overlap
+    const keywordIntersection = unit1.keywords.filter(keyword =>
+      unit2.keywords.some(otherKeyword =>
+        otherKeyword.toLowerCase().includes(keyword.toLowerCase()) ||
+        keyword.toLowerCase().includes(otherKeyword.toLowerCase())
       )
     );
-  }
+    const keywordUnion = [...new Set([...unit1.keywords, ...unit2.keywords])];
+    const keywordScore = keywordUnion.length > 0 ? keywordIntersection.length / keywordUnion.length : 0;
+    score += keywordScore * 0.1;
 
-  getSimilarUnits(unit: SearchableUnit, limit = 5): SearchableUnit[] {
-    // Find units with similar characteristics, keywords, or faction
-    const similar = this.searchableUnits
-      .filter(u => u.id !== unit.id)
-      .map(u => ({
-        unit: u,
-        similarity: this.calculateSimilarity(unit, u),
+    return score;
+  };
+
+  /**
+   * Find similar units to a target unit
+   */
+  const findSimilarUnits = (targetUnit: SearchableUnit, limit: number = 5): SearchableUnit[] => {
+    return units
+      .filter(unit => unit.id !== targetUnit.id)
+      .map(unit => ({
+        unit,
+        similarity: calculateSimilarity(targetUnit, unit)
       }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit)
-      .map(item => item.unit);
+      .map(result => result.unit);
+  };
 
-    return similar;
+  /**
+   * Get all available factions
+   */
+  const getAvailableFactions = (): string[] => {
+    const factions = new Set(units.map(unit => unit.faction));
+    return Array.from(factions).sort();
+  };
+
+  /**
+   * Get all available categories
+   */
+  const getAvailableCategories = (): string[] => {
+    const categories = new Set(
+      units.flatMap(unit => unit.categories)
+    );
+    return Array.from(categories).sort();
+  };
+
+  /**
+   * Get all available keywords
+   */
+  const getAvailableKeywords = (): string[] => {
+    const keywords = new Set(
+      units.flatMap(unit => unit.keywords)
+    );
+    return Array.from(keywords).sort();
+  };
+
+  return {
+    search,
+    searchUnits,
+    filterUnits,
+    findSimilarUnits,
+    getAvailableFactions,
+    getAvailableCategories,
+    getAvailableKeywords,
+  };
+};
+
+/**
+ * Helper function to create search filters from form data
+ */
+export const createSearchFilters = (formData: {
+  faction?: string;
+  category?: string;
+  pointsMin?: string;
+  pointsMax?: string;
+  keywords?: string;
+  abilities?: string;
+  hasWeaponType?: 'melee' | 'ranged' | 'psychic';
+}): SearchFilters => {
+  const filters: SearchFilters = {};
+
+  if (formData.faction && formData.faction !== 'all') {
+    filters.faction = formData.faction;
   }
 
-  private calculateSimilarity(unit1: SearchableUnit, unit2: SearchableUnit): number {
-    let score = 0;
+  if (formData.category && formData.category !== 'all') {
+    filters.category = formData.category;
+  }
 
-    // Same faction bonus
-    if (unit1.faction === unit2.faction) score += 0.3;
+  if (formData.pointsMin) {
+    const min = parseInt(formData.pointsMin, 10);
+    if (!isNaN(min) && min >= 0) {
+      filters.pointsMin = min;
+    }
+  }
 
-    // Shared categories
-    const sharedCategories = unit1.categories.filter(cat => 
-      unit2.categories.includes(cat)
-    ).length;
-    score += (sharedCategories / Math.max(unit1.categories.length, unit2.categories.length)) * 0.2;
+  if (formData.pointsMax) {
+    const max = parseInt(formData.pointsMax, 10);
+    if (!isNaN(max) && max >= 0) {
+      filters.pointsMax = max;
+    }
+  }
 
-    // Shared keywords
-    const sharedKeywords = unit1.keywords.filter(keyword => 
-      unit2.keywords.includes(keyword)
-    ).length;
-    score += (sharedKeywords / Math.max(unit1.keywords.length, unit2.keywords.length)) * 0.2;
+  if (formData.keywords) {
+    filters.keywords = formData.keywords
+      .split(',')
+      .map(keyword => keyword.trim())
+      .filter(keyword => keyword.length > 0);
+  }
 
-    // Similar point costs
-    const pointsDiff = Math.abs(unit1.points - unit2.points);
-    const maxPoints = Math.max(unit1.points, unit2.points);
-    if (maxPoints > 0) {
-      score += (1 - pointsDiff / maxPoints) * 0.1;
+  if (formData.abilities) {
+    filters.abilities = formData.abilities
+      .split(',')
+      .map(ability => ability.trim())
+      .filter(ability => ability.length > 0);
+  }
+
+  if (formData.hasWeaponType) {
+    filters.hasWeaponType = formData.hasWeaponType;
+  }
+
+  return filters;
+};
+
+/**
+ * Helper function to count search results
+ */
+export const getSearchResultsCount = (
+  searchService: SearchService,
+  query: string,
+  filters: SearchFilters
+): number => {
+  return searchService.search(query, filters).length;
+};
+
+/**
+ * Helper function to get search suggestions based on partial query
+ */
+export const getSearchSuggestions = (
+  units: SearchableUnit[],
+  partialQuery: string,
+  limit: number = 5
+): string[] => {
+  if (!partialQuery.trim()) return [];
+
+  const suggestions = new Set<string>();
+  const query = partialQuery.toLowerCase();
+
+  // Add unit name suggestions
+  units.forEach(unit => {
+    if (unit.name.toLowerCase().includes(query)) {
+      suggestions.add(unit.name);
     }
 
-    // Similar characteristics (if both have them)
-    const char1Keys = Object.keys(unit1.characteristics);
-    const char2Keys = Object.keys(unit2.characteristics);
-    const commonCharKeys = char1Keys.filter(key => char2Keys.includes(key));
-    
-    if (commonCharKeys.length > 0) {
-      const charSimilarity = commonCharKeys.reduce((acc, key) => {
-        return acc + (unit1.characteristics[key] === unit2.characteristics[key] ? 1 : 0);
-      }, 0) / commonCharKeys.length;
-      score += charSimilarity * 0.2;
+    // Add faction suggestions
+    if (unit.faction.toLowerCase().includes(query)) {
+      suggestions.add(unit.faction);
     }
 
-    return score;
-  }
+    // Add keyword suggestions
+    unit.keywords.forEach(keyword => {
+      if (keyword.toLowerCase().includes(query)) {
+        suggestions.add(keyword);
+      }
+    });
 
-  updateData(gameSystemData: GameSystemData): void {
-    this.searchableUnits = this.createSearchableUnits(gameSystemData.units);
-    this.unitSearchIndex = this.createSearchIndex();
-  }
-}
+    // Add ability suggestions
+    unit.abilities.forEach(ability => {
+      if (ability.toLowerCase().includes(query)) {
+        suggestions.add(ability);
+      }
+    });
+  });
+
+  return Array.from(suggestions).slice(0, limit);
+};

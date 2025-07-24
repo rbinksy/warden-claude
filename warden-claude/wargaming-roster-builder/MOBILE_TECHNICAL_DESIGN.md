@@ -170,12 +170,11 @@ const ArmyBuilder = () => {
 
 ### Pure Function Services
 
-Instead of classes, we use functional modules with pure functions:
+Instead of classes, we use functional modules with standard JavaScript methods:
 
 ```typescript
 // services/armyCalculations.ts
-import { pipe } from 'ramda';
-import type { Army, Unit, ValidationResult } from '../types';
+import type { Army, ArmyUnit, ValidationResult } from '../types';
 
 export const calculateArmyPoints = (army: Army): number =>
   army.units.reduce((total, unit) => total + (unit.points * unit.count), 0);
@@ -183,35 +182,57 @@ export const calculateArmyPoints = (army: Army): number =>
 export const calculatePowerLevel = (army: Army): number =>
   army.units.reduce((total, unit) => total + (unit.powerLevel * unit.count), 0);
 
-export const validateArmyComposition = (army: Army, rules: GameRules): ValidationResult => {
-  const validations = [
-    validatePointsLimit(rules.pointsLimit),
-    validateForceOrganization(rules.forceOrg),
-    validateUnitRestrictions(rules.restrictions),
-    validateWargearLegality(rules.wargear)
+export const validateArmy = (army: Army): ValidationResult => {
+  const errors = [
+    ...checkPointsLimit(army),
+    ...checkForceOrganization(army),
+    ...checkUnitRestrictions(army),
   ];
-
-  return pipe(
-    army,
-    ...validations,
-    combineValidationResults
-  );
-};
-
-// Curried functions for composition
-const validatePointsLimit = (limit: number) => (army: Army): ValidationResult => ({
-  isValid: calculateArmyPoints(army) <= limit,
-  errors: calculateArmyPoints(army) > limit ? [`Army exceeds ${limit} points`] : []
-});
-
-const validateForceOrganization = (forceOrg: ForceOrgChart) => (army: Army): ValidationResult => {
-  const unitsByRole = groupUnitsByBattlefieldRole(army.units);
-  const violations = checkForceOrgViolations(unitsByRole, forceOrg);
+  
+  const warnings = [
+    ...generateOptimizationSuggestions(army),
+  ];
   
   return {
-    isValid: violations.length === 0,
-    errors: violations
+    isValid: errors.length === 0,
+    errors,
+    warnings,
   };
+};
+
+// Standard functions (no currying)
+const checkPointsLimit = (army: Army): ValidationError[] => {
+  const errors: ValidationError[] = [];
+  const totalPoints = calculateArmyPoints(army);
+  
+  if (totalPoints > army.pointsLimit) {
+    errors.push({
+      id: 'points-over-limit',
+      type: 'points-limit',
+      message: `Army exceeds points limit by ${totalPoints - army.pointsLimit} points`,
+    });
+  }
+  
+  return errors;
+};
+
+const checkForceOrganization = (army: Army): ValidationError[] => {
+  const errors: ValidationError[] = [];
+  const unitsByCategory = groupUnitsByCategory(army.units);
+  
+  // Basic force org validation logic
+  const troopsCount = unitsByCategory['Troops']?.length || 0;
+  const hqCount = unitsByCategory['HQ']?.length || 0;
+  
+  if (hqCount === 0 && army.units.length > 0) {
+    errors.push({
+      id: 'missing-hq',
+      type: 'force-organization',
+      message: 'Army requires at least one HQ unit',
+    });
+  }
+  
+  return errors;
 };
 ```
 
@@ -1964,8 +1985,13 @@ export const armyService = {
   calculatePoints: (army: Army): number =>
     army.units.reduce((total, unit) => total + unit.points, 0),
   
-  validateArmy: (army: Army, rules: GameRules): ValidationResult =>
-    pipe(army, checkPointsLimit(rules), checkForceOrg(rules)),
+  validateArmy: (army: Army): ValidationResult => {
+    const errors = [
+      ...checkPointsLimit(army),
+      ...checkForceOrganization(army),
+    ];
+    return { isValid: errors.length === 0, errors, warnings: [] };
+  },
   
   optimizeForMeta: (army: Army, meta: MetaData): Army =>
     applyOptimizations(army, generateOptimizations(army, meta))
