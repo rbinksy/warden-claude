@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom utility classes for the wargaming app */
+@layer utilities {
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
+  
+  .card-shadow {
+    @apply shadow-card;
+  }
+  
+  .elevated-shadow {
+    @apply shadow-elevated;
+  }
+  
+  .modal-shadow {
+    @apply shadow-modal;
+  }
+  
+  .safe-area {
+    @apply flex-1 bg-secondary-50;
+  }
+  
+  .army-points {
+    @apply text-lg font-bold text-primary-600;
+  }
+  
+  .unit-cost {
+    @apply text-sm font-medium text-secondary-600;
+  }
+  
+  .faction-badge {
+    @apply bg-primary-100 text-primary-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .category-badge {
+    @apply bg-secondary-100 text-secondary-800 px-2 py-1 rounded text-xs font-medium;
+  }
+  
+  .error-text {
+    @apply text-danger-600 text-sm;
+  }
+  
+  .success-text {
+    @apply text-success-600 text-sm;
+  }
+  
+  .warning-text {
+    @apply text-warning-600 text-sm;
+  }
+  
+  .loading-spinner {
+    @apply w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin;
+  }
+}
